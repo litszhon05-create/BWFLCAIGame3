@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sector Strike</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #07090c; overflow: hidden; font-family: "Segoe UI", system-ui, sans-serif; color: #e8eef4; }
+  canvas { display: block; width: 100vw; height: 100vh; cursor: crosshair; }
+  #overlay, #buy, #end {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(6, 8, 12, 0.78);
+  }
+  #buy, #end { display: none; }
+  .card {
+    background: #12181f; border: 1px solid #314050; border-radius: 12px;
+    padding: 28px 32px; max-width: 620px; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,.5);
+  }
+  h1 { margin: 0 0 8px; letter-spacing: 0.16em; font-weight: 700; font-size: 28px; }
+  p { margin: 8px 0; color: #9aabbb; line-height: 1.45; }
+  kbd { background: #222b36; border: 1px solid #3a4a5c; border-radius: 4px; padding: 1px 6px; font-family: inherit; }
+  .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 16px; }
+  button {
+    font: inherit; cursor: pointer; color: #e8eef4; background: #1c2834; border: 1px solid #3d5166;
+    border-radius: 8px; padding: 10px 14px; min-width: 140px;
+  }
+  button:hover { background: #2a3c50; }
+  button small { display: block; color: #8aa0b5; font-size: 12px; }
+  #hud {
+    position: fixed; left: 0; right: 0; bottom: 0; pointer-events: none;
+    display: flex; justify-content: space-between; align-items: flex-end;
+    padding: 16px 22px 18px; font-variant-numeric: tabular-nums;
+  }
+  .stat { font-size: 30px; font-weight: 700; text-shadow: 0 2px 8px #000; }
+  .stat span { font-size: 12px; font-weight: 600; letter-spacing: 0.1em; color: #9aabbb; display: block; }
+  #top, #prompt {
+    position: fixed; left: 0; right: 0; text-align: center; pointer-events: none;
+    font-weight: 700; letter-spacing: 0.08em; text-shadow: 0 2px 8px #000;
+  }
+  #top { top: 14px; }
+  #prompt { top: 42%; font-size: 18px; color: #ffd24a; }
+  #feed { position: fixed; top: 52px; right: 18px; text-align: right; pointer-events: none; font-size: 13px; }
+  #feed div { margin: 2px 0; text-shadow: 0 1px 4px #000; }
+  #cross { position: fixed; left: 50%; top: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px; pointer-events: none; }
+  #cross i { position: absolute; background: #f4f7fb; }
+  #cross i:nth-child(1) { left: 7px; top: 0; width: 2px; height: 5px; }
+  #cross i:nth-child(2) { left: 7px; bottom: 0; width: 2px; height: 5px; }
+  #cross i:nth-child(3) { top: 7px; left: 0; height: 2px; width: 5px; }
+  #cross i:nth-child(4) { top: 7px; right: 0; height: 2px; width: 5px; }
+  #hit {
+    position: fixed; left: 50%; top: 50%; width: 10px; height: 10px; margin: -5px; border-radius: 50%;
+    border: 2px solid #ffd24a; opacity: 0; pointer-events: none;
+  }
+  #bar { position: fixed; left: 50%; top: 58%; width: 180px; height: 8px; margin-left: -90px; background: #1b2430; display: none; pointer-events: none; }
+  #bar b { display: block; height: 100%; width: 0; background: #ffd24a; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="cross"><i></i><i></i><i></i><i></i></div>
+<div id="hit"></div>
+<div id="bar"><b id="barf"></b></div>
+<div id="top"></div>
+<div id="prompt"></div>
+<div id="feed"></div>
+<div id="hud">
+  <div class="stat" id="hp">100<span>HEALTH</span></div>
+  <div class="stat" id="ammo">12 / 36<span>SIDEARM</span></div>
+  <div class="stat" id="cash">$800<span>CASH</span></div>
+</div>
+<div id="overlay">
+  <div class="card">
+    <h1>SECTOR STRIKE</h1>
+    <p>You carry the bomb. Plant it on the yellow site and keep the defenders off it until it blows. Kill the whole site or let the bomb explode to win the round. First to 5 rounds takes the match.</p>
+    <p><kbd>WASD</kbd> move <kbd>Mouse</kbd> aim <kbd>Click</kbd> fire <kbd>R</kbd> reload <kbd>E</kbd> plant <kbd>B</kbd> buy <kbd>1-3</kbd> guns <kbd>Shift</kbd> walk</p>
+    <div class="row"><button id="play">Deploy</button></div>
+  </div>
+</div>
+<div id="buy">
+  <div class="card">
+    <h1>BUY</h1>
+    <p id="buycash">Cash $800</p>
+    <div class="row">
+      <button data-buy="sidearm">Sidearm<small>Free · owned</small></button>
+      <button data-buy="carbine">Carbine<small>$2700 · automatic</small></button>
+      <button data-buy="longshot">Longshot<small>$4750 · heavy hit</small></button>
+      <button data-buy="armor">Armor<small>$650 · soaks damage</small></button>
+      <button id="closebuy">Close</button>
+    </div>
+  </div>
+</div>
+<div id="end">
+  <div class="card">
+    <h1 id="endtitle">MATCH</h1>
+    <p id="endbody"></p>
+    <div class="row"><button id="again">Play again</button></div>
+  </div>
+</div>
+<script>
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+const MAP = [
+  "########################",
+  "#..........##..........#",
+  "#..######..##..######..#",
+  "#..#....#..##..#....#..#",
+  "#..#....#......#....A..#",
+  "#..#....####...#....A..#",
+  "#..........#...........#",
+  "#..####....#....####...#",
+  "#..#.......#.......#...#",
+  "#..#..####.#.#####.#...#",
+  "#..#..#.........#..#...#",
+  "#..#..#.#######.#..#...#",
+  "#..#..#.........#..#...#",
+  "#..#..###########..#...#",
+  "#..#...............#...#",
+  "#..######....#########.#",
+  "#.....................P#",
+  "########################",
+];
+const MH = MAP.length, MW = MAP[0].length;
+const GUNS = {
+  sidearm:  { name: "SIDEARM",  dmg: 28, mag: 12, reserve: 36, rate: 160, reload: 1200, spread: 0.02, price: 0, auto: false, color: "#d7dde4" },
+  carbine:  { name: "CARBINE",  dmg: 24, mag: 30, reserve: 90, rate: 90,  reload: 1700, spread: 0.035, price: 2700, auto: true, color: "#8fd0ff" },
+  longshot: { name: "LONGSHOT", dmg: 100, mag: 5, reserve: 15, rate: 850, reload: 2200, spread: 0.004, price: 4750, auto: false, color: "#c9a36a" },
+};
+const site = [];
+for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) if (MAP[y][x] === "A") site.push([x + 0.5, y + 0.5]);
+
+let keys = {}, lookX = 0, lookY = 0, shooting = false, playing = false;
+let player, bots, score, roundN, phase, phaseUntil, bomb, feed, flashUntil, flashText, matchOver;
+let last = performance.now();
+
+function cell(x, y) {
+  const ix = x | 0, iy = y | 0;
+  if (ix < 0 || iy < 0 || ix >= MW || iy >= MH) return "#";
+  return MAP[iy][ix];
+}
+function blocked(x, y) { return cell(x, y) === "#"; }
+function onSite(x, y) { return cell(x, y) === "A"; }
+function fresh(id) { const g = GUNS[id]; return { id, mag: g.mag, reserve: g.reserve, next: 0, reloading: 0 }; }
+function say(text) { feed.unshift({ text, t: performance.now() }); feed = feed.slice(0, 6); }
+function banner(text) { flashText = text; flashUntil = performance.now() + 1400; }
+
+function resetMatch() {
+  score = { you: 0, them: 0 };
+  roundN = 0;
+  matchOver = false;
+  feed = [];
+  startRound(800);
+}
+function startRound(cash) {
+  roundN++;
+  let px = 2, py = 2;
+  for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) if (MAP[y][x] === "P") { px = x + 0.5; py = y + 0.5; }
+  player = {
+    x: px, y: py, a: Math.PI, pitch: 0, hp: 100, armor: 0,
+    cash: cash == null ? 800 : cash,
+    guns: { sidearm: fresh("sidearm") }, held: "sidearm", hurt: 0, bob: 0,
+  };
+  bots = [
+    { x: 18.5, y: 4.5, a: 0 },
+    { x: 16.5, y: 5.5, a: 0 },
+    { x: 12.5, y: 8.5, a: 1 },
+    { x: 8.5, y: 11.5, a: 0.4 },
+  ].map((b, i) => Object.assign(b, { hp: 100, alive: true, next: 0, cool: 480 + i * 70 }));
+  bomb = { planted: false, until: 0, planting: 0, defusing: 0 };
+  phase = "freeze";
+  phaseUntil = performance.now() + 7000;
+  say("Freeze — B buys, E plants on the yellow site");
+}
+function move(ent, nx, ny) {
+  const r = 0.2;
+  if (!blocked(nx, ent.y) && !blocked(nx + r, ent.y) && !blocked(nx - r, ent.y)) ent.x = nx;
+  if (!blocked(ent.x, ny) && !blocked(ent.x, ny + r) && !blocked(ent.x, ny - r)) ent.y = ny;
+}
+function los(x0, y0, x1, y1) {
+  const dx = x1 - x0, dy = y1 - y0, n = Math.ceil(Math.hypot(dx, dy) * 6);
+  for (let i = 1; i < n; i++) if (blocked(x0 + dx * i / n, y0 + dy * i / n)) return false;
+  return true;
+}
+function hurt(target, amount, byPlayer) {
+  if (target.armor > 0) {
+    const soak = Math.min(target.armor, amount * 0.45);
+    target.armor -= soak;
+    amount -= soak;
+  }
+  target.hp -= amount;
+  target.hurt = performance.now();
+  if (target.hp <= 0) {
+    target.hp = 0;
+    target.alive = false;
+    if (byPlayer) { player.cash += 300; say("Defender down  +$300"); mark(); }
+    else if (target === player) say("You are down");
+  } else if (byPlayer) mark();
+}
+function mark() {
+  const h = document.getElementById("hit");
+  h.style.opacity = "1";
+  setTimeout(() => { h.style.opacity = "0"; }, 90);
+}
+function rayHits(x, y, ang, fromPlayer) {
+  const dirX = Math.cos(ang), dirY = Math.sin(ang);
+  let mapX = x | 0, mapY = y | 0;
+  const deltaX = Math.abs(1 / (dirX || 1e-6)), deltaY = Math.abs(1 / (dirY || 1e-6));
+  let stepX, stepY, sideX, sideY;
+  if (dirX < 0) { stepX = -1; sideX = (x - mapX) * deltaX; } else { stepX = 1; sideX = (mapX + 1 - x) * deltaX; }
+  if (dirY < 0) { stepY = -1; sideY = (y - mapY) * deltaY; } else { stepY = 1; sideY = (mapY + 1 - y) * deltaY; }
+  let side = 0, dist = 0;
+  for (let i = 0; i < 48; i++) {
+    if (sideX < sideY) { sideX += deltaX; mapX += stepX; side = 0; } else { sideY += deltaY; mapY += stepY; side = 1; }
+    if (mapX < 0 || mapY < 0 || mapX >= MW || mapY >= MH || MAP[mapY][mapX] === "#") {
+      dist = side === 0 ? (mapX - x + (1 - stepX) / 2) / (dirX || 1e-6) : (mapY - y + (1 - stepY) / 2) / (dirY || 1e-6);
+      break;
+    }
+  }
+  dist = Math.abs(dist);
+  const hx = x + dirX * dist, hy = y + dirY * dist;
+  let hit = null, best = dist;
+  const list = fromPlayer ? bots.filter(b => b.alive) : [player];
+  for (const b of list) {
+    const vx = b.x - x, vy = b.y - y;
+    const proj = vx * dirX + vy * dirY;
+    if (proj < 0.2 || proj > best) continue;
+    const px = x + dirX * proj, py = y + dirY * proj;
+    if (Math.hypot(b.x - px, b.y - py) < 0.28) { best = proj; hit = b; }
+  }
+  return { dist: best, side, hx, hy, hit };
+}
+function fire() {
+  const spec = GUNS[player.held];
+  const gun = player.guns[player.held];
+  const now = performance.now();
+  if (gun.reloading > now || gun.next > now || phase !== "live" || player.hp <= 0) return;
+  if (gun.mag <= 0) { reload(); return; }
+  gun.mag--;
+  gun.next = now + spec.rate;
+  player.kick = Math.min(0.28, (player.kick || 0) + (spec.auto ? 0.018 : 0.045));
+  const spread = spec.spread * (keys.Shift ? 0.35 : 1);
+  const shot = rayHits(player.x, player.y, player.a + (Math.random() - 0.5) * spread, true);
+  if (shot.hit) hurt(shot.hit, spec.dmg, true);
+}
+function botFire(b) {
+  const now = performance.now();
+  if (b.next > now) return;
+  b.next = now + b.cool;
+  const shot = rayHits(b.x, b.y, b.a + (Math.random() - 0.5) * 0.06, false);
+  if (shot.hit === player) hurt(player, 11, false);
+}
+function reload() {
+  const gun = player.guns[player.held];
+  const spec = GUNS[player.held];
+  const now = performance.now();
+  if (gun.reloading > now || gun.mag === spec.mag || gun.reserve <= 0) return;
+  gun.reloading = now + spec.reload;
+}
+function finishReload() {
+  const gun = player.guns[player.held];
+  const spec = GUNS[player.held];
+  if (!gun.reloading || gun.reloading > performance.now()) return;
+  const take = Math.min(spec.mag - gun.mag, gun.reserve);
+  gun.mag += take; gun.reserve -= take; gun.reloading = 0;
+}
+function buy(id) {
+  if (phase !== "freeze") return;
+  if (id === "armor") {
+    if (player.cash < 650 || player.armor >= 50) return;
+    player.cash -= 650; player.armor = 50; say("Armor equipped"); return;
+  }
+  const spec = GUNS[id];
+  if (!spec || player.guns[id] || player.cash < spec.price) return;
+  player.cash -= spec.price;
+  player.guns[id] = fresh(id);
+  player.held = id;
+  say(spec.name + " bought");
+}
+function alive() { return bots.filter(b => b.alive).length; }
+function endRound(win, reason) {
+  if (phase === "over" || matchOver) return;
+  phase = "over";
+  if (win) { score.you++; player.cash += 3250; banner("ROUND WON"); say(reason + "  +$3250"); }
+  else { score.them++; player.cash += 1400; banner("ROUND LOST"); say(reason + "  +$1400"); }
+  phaseUntil = performance.now() + 2400;
+  if (score.you >= 5 || score.them >= 5) {
+    matchOver = true;
+    document.getElementById("endtitle").textContent = score.you > score.them ? "MATCH WON" : "MATCH LOST";
+    document.getElementById("endbody").textContent = "Attackers " + score.you + "  —  Defenders " + score.them;
+    document.getElementById("end").style.display = "flex";
+    if (document.pointerLockElement) document.exitPointerLock();
+  }
+}
+function update(dt) {
+  const now = performance.now();
+  finishReload();
+  if (phase === "freeze" && now >= phaseUntil) { phase = "live"; phaseUntil = now + 90000; banner("GO"); }
+  if (phase === "over" && now >= phaseUntil && !matchOver) startRound(player.cash);
+  if (phase === "live" && !bomb.planted && now >= phaseUntil) endRound(false, "Time expired");
+  if (phase === "live" && player.hp <= 0 && !bomb.planted) endRound(false, "Eliminated");
+  if (phase === "live" && alive() === 0 && !bomb.planted) endRound(true, "Site cleared");
+  if (bomb.planted && now >= bomb.until) endRound(true, "Bomb exploded");
+  if (bomb.planted && bomb.defusing && now >= bomb.defusing) endRound(false, "Bomb defused");
+
+  if (player.hp > 0 && phase !== "over") {
+    const sp = (keys.Shift ? 1.7 : 3.05) * dt;
+    let vx = 0, vy = 0;
+    if (keys.KeyW) { vx += Math.cos(player.a); vy += Math.sin(player.a); }
+    if (keys.KeyS) { vx -= Math.cos(player.a); vy -= Math.sin(player.a); }
+    if (keys.KeyA) { vx += Math.cos(player.a - 1.5708); vy += Math.sin(player.a - 1.5708); }
+    if (keys.KeyD) { vx += Math.cos(player.a + 1.5708); vy += Math.sin(player.a + 1.5708); }
+    const len = Math.hypot(vx, vy);
+    if (len > 0) { move(player, player.x + vx / len * sp, player.y + vy / len * sp); player.bob += dt * 8; }
+    if (keys.ArrowLeft) player.a -= dt * 1.7;
+    if (keys.ArrowRight) player.a += dt * 1.7;
+    if (keys.ArrowUp) player.pitch = Math.min(0.55, player.pitch + dt);
+    if (keys.ArrowDown) player.pitch = Math.max(-0.45, player.pitch - dt);
+    player.a += lookX; player.pitch = Math.max(-0.5, Math.min(0.55, player.pitch + lookY));
+    lookX = 0; lookY = 0;
+    player.kick = (player.kick || 0) * 0.86;
+    if (shooting && phase === "live") { fire(); if (!GUNS[player.held].auto) shooting = false; }
+    const planting = keys.KeyE && phase === "live" && !bomb.planted && onSite(player.x, player.y) && player.hp > 0;
+    if (planting) {
+      bomb.planting += dt;
+      if (bomb.planting >= 2.4) {
+        bomb.planted = true; bomb.until = now + 18000; bomb.planting = 0;
+        banner("BOMB PLANTED"); say("Bomb planted — hold the site");
+      }
+    } else bomb.planting = 0;
+  }
+
+  let defuser = null;
+  for (const b of bots) {
+    if (!b.alive || phase !== "live") continue;
+    const see = player.hp > 0 && los(b.x, b.y, player.x, player.y) && Math.hypot(player.x - b.x, player.y - b.y) < 11;
+    if (bomb.planted && los(b.x, b.y, site[0][0], site[0][1])) {
+      const tx = site[0][0], ty = site[0][1];
+      b.a = Math.atan2(ty - b.y, tx - b.x);
+      const d = Math.hypot(tx - b.x, ty - b.y);
+      if (d > 0.6) move(b, b.x + Math.cos(b.a) * dt * 1.7, b.y + Math.sin(b.a) * dt * 1.7);
+      else defuser = b;
+    } else if (see) {
+      b.a = Math.atan2(player.y - b.y, player.x - b.x);
+      const d = Math.hypot(player.x - b.x, player.y - b.y);
+      if (d > 3.4) move(b, b.x + Math.cos(b.a) * dt * 1.65, b.y + Math.sin(b.a) * dt * 1.65);
+      botFire(b);
+    } else {
+      b.a += Math.sin(now / 700 + b.x) * dt * 0.8;
+      move(b, b.x + Math.cos(b.a) * dt * 0.7, b.y + Math.sin(b.a) * dt * 0.7);
+    }
+  }
+  if (defuser && bomb.planted) {
+    if (!bomb.defusing) bomb.defusing = now + 4500;
+  } else bomb.defusing = 0;
+}
+function castColumn(ang) {
+  const hit = rayHits(player.x, player.y, ang, false);
+  const dirX = Math.cos(ang), dirY = Math.sin(ang);
+  const hx = player.x + dirX * hit.dist, hy = player.y + dirY * hit.dist;
+  const tex = hit.side === 0 ? hy - Math.floor(hy) : hx - Math.floor(hx);
+  return { dist: Math.max(0.05, hit.dist * Math.cos(ang - player.a)), side: hit.side, tex };
+}
+function draw() {
+  const w = canvas.width, h = canvas.height;
+  const horizon = h * (0.5 - player.pitch - (player.kick || 0));
+  const sky = ctx.createLinearGradient(0, 0, 0, horizon);
+  sky.addColorStop(0, "#121820"); sky.addColorStop(1, "#2a3848");
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, w, Math.max(0, horizon));
+  ctx.fillStyle = "#3a3228"; ctx.fillRect(0, horizon, w, h - horizon);
+  if (player.hurt && performance.now() - player.hurt < 100) { ctx.fillStyle = "rgba(120,20,20,.35)"; ctx.fillRect(0, 0, w, h); }
+
+  const fov = Math.PI / 3, cols = Math.min(w, 520);
+  const depth = new Float32Array(cols);
+  for (let i = 0; i < cols; i++) {
+    const ang = player.a - fov / 2 + (i / cols) * fov;
+    const c = castColumn(ang);
+    depth[i] = c.dist;
+    const lh = Math.min(h * 1.4, (h * 0.92) / c.dist);
+    const shade = Math.max(28, 200 - c.dist * 14) * (c.side ? 0.72 : 1);
+    const stripe = c.tex < 0.06 || c.tex > 0.94;
+    ctx.fillStyle = stripe ? `rgb(${shade * 0.45},${shade * 0.5},${shade * 0.42})` : `rgb(${shade * 0.62},${shade * 0.66},${shade * 0.58})`;
+    const x = i * w / cols;
+    ctx.fillRect(x, horizon - lh / 2, w / cols + 1, lh);
+  }
+
+  const sprites = bots.filter(b => b.alive).map(b => ({
+    b, dist: Math.hypot(b.x - player.x, b.y - player.y), ang: Math.atan2(b.y - player.y, b.x - player.x),
+  })).sort((a, b) => b.dist - a.dist);
+  for (const s of sprites) {
+    let da = s.ang - player.a;
+    while (da > Math.PI) da -= Math.PI * 2;
+    while (da < -Math.PI) da += Math.PI * 2;
+    if (Math.abs(da) > fov * 0.7) continue;
+    const sx = (0.5 + da / fov) * w;
+    const size = Math.min(h, h * 0.78 / s.dist);
+    const col = Math.max(0, Math.min(cols - 1, (sx / w) * cols | 0));
+    if (depth[col] < s.dist) continue;
+    const top = horizon - size * 0.48;
+    ctx.fillStyle = "#b43232";
+    ctx.fillRect(sx - size * 0.18, top, size * 0.36, size * 0.86);
+    ctx.fillStyle = "#1a1c20";
+    ctx.fillRect(sx - size * 0.12, top + size * 0.05, size * 0.24, size * 0.14);
+    ctx.fillStyle = "#e8e0d0";
+    ctx.fillRect(sx - size * 0.05, top + size * 0.42, size * 0.1, size * 0.28);
+  }
+
+  const spec = GUNS[player.held];
+  const bob = Math.sin(player.bob) * 8;
+  ctx.fillStyle = spec.color;
+  ctx.fillRect(w * 0.58, h * 0.62 + bob, w * 0.16, h * 0.28);
+  ctx.fillStyle = "#1c1f24";
+  ctx.fillRect(w * 0.62, h * 0.58 + bob, w * 0.05, h * 0.12);
+
+  ctx.fillStyle = "rgba(0,0,0,.5)";
+  ctx.fillRect(14, 14, MW * 5 + 8, MH * 5 + 8);
+  for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
+    const ch = MAP[y][x];
+    if (ch === "#") ctx.fillStyle = "#7d8b99";
+    else if (ch === "A") ctx.fillStyle = bomb.planted ? "#ffb020" : "#c6a15a";
+    else continue;
+    ctx.fillRect(18 + x * 5, 18 + y * 5, 5, 5);
+  }
+  ctx.fillStyle = "#79f2b2";
+  ctx.fillRect(18 + player.x * 5 - 2, 18 + player.y * 5 - 2, 4, 4);
+  ctx.strokeStyle = "#79f2b2";
+  ctx.beginPath();
+  ctx.moveTo(18 + player.x * 5, 18 + player.y * 5);
+  ctx.lineTo(18 + player.x * 5 + Math.cos(player.a) * 8, 18 + player.y * 5 + Math.sin(player.a) * 8);
+  ctx.stroke();
+  ctx.fillStyle = "#ff5d5d";
+  for (const b of bots) if (b.alive) ctx.fillRect(18 + b.x * 5 - 2, 18 + b.y * 5 - 2, 4, 4);
+
+  const gun = player.guns[player.held];
+  const rel = gun.reloading > performance.now();
+  document.getElementById("hp").innerHTML = Math.max(0, player.hp | 0) + "<span>HEALTH" + (player.armor ? " · ARMOR " + (player.armor | 0) : "") + "</span>";
+  document.getElementById("ammo").innerHTML = (rel ? "RELOADING" : gun.mag + " / " + gun.reserve) + "<span>" + spec.name + "</span>";
+  document.getElementById("cash").innerHTML = "$" + player.cash + "<span>CASH</span>";
+  const left = Math.max(0, ((bomb.planted ? bomb.until : phaseUntil) - performance.now()) / 1000);
+  const label = bomb.planted ? "BOMB" : phase === "freeze" ? "FREEZE" : phase === "live" ? "LIVE" : "ROUND";
+  document.getElementById("top").textContent = label + "  " + left.toFixed(1) + "s     " + score.you + " : " + score.them + "     Round " + roundN + (flashText && performance.now() < flashUntil ? "     " + flashText : "");
+  let prompt = "";
+  if (phase === "live" && !bomb.planted && onSite(player.x, player.y)) prompt = "HOLD E TO PLANT";
+  if (bomb.defusing) prompt = "DEFUSING";
+  document.getElementById("prompt").textContent = prompt;
+  const bar = document.getElementById("bar");
+  if (bomb.planting > 0) { bar.style.display = "block"; document.getElementById("barf").style.width = (bomb.planting / 2.4 * 100) + "%"; }
+  else if (bomb.defusing) { bar.style.display = "block"; document.getElementById("barf").style.width = ((1 - (bomb.defusing - performance.now()) / 4500) * 100) + "%"; }
+  else bar.style.display = "none";
+  document.getElementById("feed").innerHTML = feed.map(f => "<div>" + f.text + "</div>").join("");
+  document.getElementById("buycash").textContent = "Cash $" + player.cash;
+}
+function frame(t) {
+  const dt = Math.min(0.05, (t - last) / 1000);
+  last = t;
+  if (playing && player && !matchOver) update(dt);
+  if (player) draw();
+  requestAnimationFrame(frame);
+}
+function resize() { canvas.width = innerWidth; canvas.height = innerHeight; }
+addEventListener("resize", resize); resize();
+document.getElementById("play").onclick = () => {
+  document.getElementById("overlay").style.display = "none";
+  playing = true;
+  canvas.requestPointerLock();
+};
+document.getElementById("again").onclick = () => {
+  document.getElementById("end").style.display = "none";
+  resetMatch(); playing = true; canvas.requestPointerLock();
+};
+document.getElementById("closebuy").onclick = () => { document.getElementById("buy").style.display = "none"; canvas.requestPointerLock(); };
+document.querySelectorAll("[data-buy]").forEach(b => b.onclick = () => buy(b.dataset.buy));
+addEventListener("mousemove", e => {
+  if (document.pointerLockElement === canvas) { lookX += e.movementX * 0.002; lookY -= e.movementY * 0.0016; }
+});
+canvas.addEventListener("mousedown", () => { if (playing) shooting = true; canvas.requestPointerLock(); });
+addEventListener("mouseup", () => { shooting = false; });
+addEventListener("keydown", e => {
+  keys[e.code] = true;
+  if (e.code === "KeyR") reload();
+  if (e.code === "Digit1" && player.guns.sidearm) player.held = "sidearm";
+  if (e.code === "Digit2" && player.guns.carbine) player.held = "carbine";
+  if (e.code === "Digit3" && player.guns.longshot) player.held = "longshot";
+  if (e.code === "KeyB" && phase === "freeze") {
+    document.getElementById("buy").style.display = "flex";
+    if (document.pointerLockElement) document.exitPointerLock();
+  }
+});
+addEventListener("keyup", e => { keys[e.code] = false; });
+resetMatch();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
